@@ -63,11 +63,7 @@ class z.conversation.ConversationRepository
     @sorted_conversations = ko.pureComputed =>
       @filtered_conversations().sort z.util.sort_groups_by_last_event
 
-    @sending_queue = new z.conversation.SendingQueue()
-    @sending_queue.pause()
-
-    @conversation_service.client.request_queue_blocked_state.subscribe (state) =>
-      @sending_queue.pause state isnt z.service.RequestQueueBlockedState.NONE and not @block_event_handling
+    @messenger = new z.conversation.Messenger @, @user_repository, @cryptography_repository
 
     @conversations_archived = ko.observableArray []
     @conversations_call = ko.observableArray []
@@ -275,12 +271,6 @@ class z.conversation.ConversationRepository
   ###
   find_conversation_by_id: (conversation_id) ->
     return conversation for conversation in @conversations() when conversation.id is conversation_id
-
-  get_all_users_in_conversation: (conversation_id) ->
-    return new Promise (resolve) =>
-      @get_conversation_by_id conversation_id, (conversation_et) =>
-        others = conversation_et.participating_user_ets()
-        resolve others.concat [@user_repository.self()]
 
   ###
   Check for conversation locally and fetch it from the server otherwise.
@@ -1111,25 +1101,6 @@ class z.conversation.ConversationRepository
       status: z.message.StatusType.SENDING
 
   ###
-  Create a user client map for a given conversation.
-
-  @private
-  @param conversation_id [String] Conversation ID
-  @param skip_own_clients [Boolean] True, if other own clients should be skipped (to not sync messages on own clients)
-  @return [Promise<Object>] Promise that resolves with a user client map
-  ###
-  _create_user_client_map: (conversation_id, skip_own_clients = false) ->
-    @get_all_users_in_conversation conversation_id
-    .then (user_ets) ->
-      user_client_map = {}
-
-      for user_et in user_ets
-        continue if user_et.is_me and skip_own_clients
-        user_client_map[user_et.id] = (client_et.id for client_et in user_et.devices())
-
-      return user_client_map
-
-  ###
   Create a user client map for given IDs.
 
   @private
@@ -1176,7 +1147,7 @@ class z.conversation.ConversationRepository
       @on_conversation_event saved_event
 
       # we don't need to wait for the sending to resolve
-      @sending_queue.push => @_send_generic_message conversation_et.id, generic_message
+      @messenger.send_message conversation_et, generic_message
       .then =>
         if saved_event.type in z.event.EventTypeHandling.STORE
           @_update_message_sent_status conversation_et, saved_event.id
@@ -1196,103 +1167,6 @@ class z.conversation.ConversationRepository
       changes = status: z.message.StatusType.SENT
       message_et.status z.message.StatusType.SENT
       @conversation_service.update_message_in_db message_et, changes
-
-  ###
-  Send encrypted external message
-
-  @param conversation_id [String] Conversation ID
-  @param generic_message [z.protobuf.GenericMessage] Generic message to be sent as external message
-  @param user_ids [Array<String>] Optional array of user IDs to limit sending to
-  @param native_push [Boolean] Optional if message should enforce native push
-  @return [Promise] Promise that resolves after sending the external message
-  ###
-  _send_external_generic_message: (conversation_id, generic_message, user_ids, native_push = true) =>
-    @logger.log @logger.levels.INFO, "Sending external message of type '#{generic_message.content}'", generic_message
-
-    key_bytes = null
-    sha256 = null
-    ciphertext = null
-    skip_own_clients = generic_message.content is 'ephemeral'
-
-    z.assets.AssetCrypto.encrypt_aes_asset generic_message.toArrayBuffer()
-    .then (data) =>
-      [key_bytes, sha256, ciphertext] = data
-      return @_create_user_client_map conversation_id, skip_own_clients
-    .then (user_client_map) =>
-      if user_ids
-        delete user_client_map[user_id] for user_id of user_client_map when user_id not in user_ids
-      if skip_own_clients
-        user_ids = Object.keys user_client_map
-      generic_message_external = new z.proto.GenericMessage z.util.create_random_uuid()
-      generic_message_external.set 'external', new z.proto.External new Uint8Array(key_bytes), new Uint8Array(sha256)
-      return @cryptography_repository.encrypt_generic_message user_client_map, generic_message_external
-    .then (payload) =>
-      payload.data = z.util.array_to_base64 ciphertext
-      payload.native_push = native_push
-      @_send_encrypted_message conversation_id, generic_message, payload, user_ids
-    .catch (error) =>
-      @logger.log @logger.levels.INFO, 'Failed sending external message', error
-      throw error
-
-  ###
-  Sends a generic message to a conversation.
-
-  @private
-  @param conversation_id [String] Conversation ID
-  @param generic_message [z.protobuf.GenericMessage] Protobuf message to be encrypted and send
-  @param user_ids [Array<String>] Optional array of user IDs to limit sending to
-  @param native_push [Boolean] Optional if message should enforce native push
-  @return [Promise] Promise that resolves when the message was sent
-  ###
-  _send_generic_message: (conversation_id, generic_message, user_ids, native_push = true) =>
-    Promise.resolve @_send_as_external_message conversation_id, generic_message
-    .then (send_as_external) =>
-      if send_as_external
-        @_send_external_generic_message conversation_id, generic_message, user_ids, native_push
-      else
-        skip_own_clients = generic_message.content is 'ephemeral'
-        @_create_user_client_map conversation_id, skip_own_clients
-        .then (user_client_map) =>
-          if user_ids
-            delete user_client_map[user_id] for user_id of user_client_map when user_id not in user_ids
-          if skip_own_clients
-            user_ids = Object.keys user_client_map
-          return @cryptography_repository.encrypt_generic_message user_client_map, generic_message
-        .then (payload) =>
-          payload.native_push = native_push
-          @_send_encrypted_message conversation_id, generic_message, payload, user_ids
-    .catch (error) =>
-      if error.code is z.service.BackendClientError::STATUS_CODE.REQUEST_TOO_LARGE
-        return @_send_external_generic_message conversation_id, generic_message, user_ids, native_push
-      throw error
-
-  ###
-  Sends otr message to a conversation.
-
-  @private
-  @note Options for the precondition check on missing clients are:
-    'false' - all clients, 'Array<String>' - only clients of listed users, 'true' - force sending
-  @param conversation_id [String] Conversation ID
-  @param generic_message [z.protobuf.GenericMessage] Protobuf message to be encrypted and send
-  @param payload [Object]
-  @param precondition_option [Array<String>|Boolean] Level that backend checks for missing clients
-  @return [Promise] Promise that resolves after sending the encrypted message
-  ###
-  _send_encrypted_message: (conversation_id, generic_message, payload, precondition_option = false) =>
-    @logger.log @logger.levels.INFO,
-      "Sending encrypted '#{generic_message.content}' message to conversation '#{conversation_id}'", payload
-    @conversation_service.post_encrypted_message conversation_id, payload, precondition_option
-    .then (response) =>
-      @_handle_client_mismatch conversation_id, response
-      return response
-    .catch (error) =>
-      throw error if not error.missing
-
-      return @_handle_client_mismatch conversation_id, error, generic_message, payload
-      .then (updated_payload) =>
-        @logger.log @logger.levels.INFO,
-          "Sending updated encrypted '#{generic_message.content}' message to conversation '#{conversation_id}'", updated_payload
-        return @conversation_service.post_encrypted_message conversation_id, updated_payload, true
 
   ###
   Sends otr asset to a conversation.
@@ -1326,22 +1200,6 @@ class z.conversation.ConversationRepository
         return @_handle_client_mismatch conversation_id, error, generic_message, payload
         .then (updated_payload) =>
           @asset_service.post_asset_v2 conversation_id, updated_payload, image_data, true, nonce
-
-  ###
-  Estimate whether message should be send as type external.
-
-  @private
-  @param conversation_id [String]
-  @param generic_message [z.protobuf.GenericMessage] Generic message that will be send
-  @return [Boolean] Is payload likely to be too big so that we switch to type external?
-  ###
-  _send_as_external_message: (conversation_id, generic_message) ->
-    return new Promise (resolve) =>
-      @get_conversation_by_id conversation_id, (conversation_et) ->
-        estimated_number_of_clients = conversation_et.number_of_participants() * 4
-        message_in_bytes = new Uint8Array(generic_message.toArrayBuffer()).length
-        estimated_payload_in_bytes = estimated_number_of_clients * message_in_bytes
-        resolve estimated_payload_in_bytes / 1024 > 200
 
   ###
   Post images to a conversation.
@@ -2082,78 +1940,6 @@ class z.conversation.ConversationRepository
   cancel_asset_upload: (message_et) =>
     @asset_service.cancel_asset_upload message_et.assets()[0].upload_id()
     @send_asset_upload_failed @active_conversation(), message_et.id, z.assets.AssetUploadFailedReason.CANCELLED
-
-  ###
-  Handle client mismatch response from backend.
-
-  @note As part of 412 or general response when sending encrypted message
-  @param conversation_id [String] ID of conversation message was sent int
-  @param client_mismatch [Object] Client mismatch object containing client user maps for deleted, missing and obsolete clients
-  @param generic_message [z.proto.GenericMessage] Optionally the GenericMessage that was sent
-  @param payload [Object] Optionally the initial payload that was sent resulting in a 412
-  ###
-  _handle_client_mismatch: (conversation_id, client_mismatch, generic_message, payload) =>
-    Promise.resolve()
-    .then =>
-      if not _.isEmpty client_mismatch.redundant
-        @logger.log @logger.levels.DEBUG, 'Message contains redundant clients', client_mismatch.redundant
-        return @_handle_client_mismatch_obsolete client_mismatch.redundant, conversation_id, payload
-      return payload
-    .then (updated_payload) =>
-      if not _.isEmpty client_mismatch.deleted
-        @logger.log @logger.levels.DEBUG, 'Message contains deleted clients', client_mismatch.deleted
-        return @_handle_client_mismatch_obsolete client_mismatch.deleted, false, updated_payload
-      return updated_payload
-    .then (updated_payload) =>
-      if payload and not _.isEmpty client_mismatch.missing
-        @logger.log @logger.levels.DEBUG, 'Message is missing payload for clients', client_mismatch.missing
-        return @_handle_client_mismatch_missing client_mismatch.missing, generic_message, updated_payload
-      return updated_payload
-
-  _handle_client_mismatch_missing: (user_client_map, generic_message, payload) ->
-    if _.isEmpty user_client_map
-      @logger.log @logger.levels.INFO, 'No missing clients that need to be added'
-      return Promise.resolve payload
-
-    @logger.log @logger.levels.INFO, "Adding payload for missing clients of '#{Object.keys(user_client_map).length}' users", user_client_map
-    save_promises = []
-
-    @cryptography_repository.encrypt_generic_message user_client_map, generic_message, payload
-    .then (updated_payload) =>
-      payload = updated_payload
-      for user_id, client_ids of user_client_map
-        for client_id in client_ids
-          save_promises.push @user_repository.add_client_to_user user_id, new z.client.Client {id: client_id}
-
-      return Promise.all save_promises
-    .then ->
-      return payload
-
-  _handle_client_mismatch_obsolete: (user_client_map, conversation_id, payload) ->
-    if _.isEmpty user_client_map
-      @logger.log @logger.levels.INFO, 'No obsolete clients that need to be removed'
-      return Promise.resolve payload
-
-    conversation_et = @get_conversation_by_id conversation_id if conversation_id
-
-    delete_promises = []
-    for user_id, client_ids of user_client_map
-      if conversation_et
-        conversation_et.participating_user_ids.remove user_id
-      else
-        for client_id in client_ids
-          delete payload.recipients[user_id][client_id] if payload
-          delete_promises.push @user_repository.remove_client_from_user user_id, client_id
-
-      if payload and (conversation_id or Object.keys(payload.recipients[user_id]).length is 0)
-        delete payload.recipients[user_id]
-
-    if conversation_et
-      @update_participating_user_ets conversation_et
-
-    return Promise.all delete_promises
-    .then ->
-      return payload
 
   ###
   Delete message from UI and database. Primary key is used to delete message in database.

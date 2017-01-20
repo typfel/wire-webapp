@@ -22,10 +22,13 @@ z.ViewModel ?= {}
 class z.ViewModel.ImageDetailViewViewModel
   constructor: (@element_id, @conversation_repository) ->
 
-    @image_modal = undefined
+    @visible = ko.observable false
+    @visible.subscribe (visible) =>
+      if not visible
+        window.URL.revokeObjectURL @image_src()
+        @image_src undefined
 
     @image_src = ko.observable()
-    @image_visible = ko.observable false
 
     @conversation_et = ko.observable()
     @message_et = ko.observable()
@@ -38,26 +41,13 @@ class z.ViewModel.ImageDetailViewViewModel
 
   show: (message_et) =>
     @message_et message_et
+    @visible true
 
-    @image_modal.destroy() if @image_modal?
-    @image_modal = new zeta.webapp.module.Modal '#detail-view', @_hide_callback, @_before_hide_callback
-    @image_modal.show()
-
-    message_et.get_first_asset().resource().load().then (blob) =>
-      @image_src window.URL.createObjectURL blob
-      @image_visible true
-
+    message_et.get_first_asset().resource().load().then (blob) => @image_src window.URL.createObjectURL blob
     amplify.publish z.event.WebApp.ANALYTICS.EVENT, z.tracking.SessionEventName.INTEGER.IMAGE_DETAIL_VIEW_OPENED
 
-  _hide_callback: =>
-    window.URL.revokeObjectURL @image_src()
-    @image_src undefined
-
-  _before_hide_callback: =>
-    @image_visible false
-
   click_on_close: =>
-    @image_modal.hide()
+    @visible false
 
   click_on_download: ->
     @message_et().download()
@@ -69,10 +59,10 @@ class z.ViewModel.ImageDetailViewViewModel
     amplify.publish z.event.WebApp.WARNING.MODAL, z.ViewModel.ModalType.DELETE_MESSAGE,
       action: =>
         @conversation_repository.delete_message @conversation_et(), @message_et()
-        @image_modal.hide()
+        @visible false
 
   click_on_delete_for_everyone: =>
     amplify.publish z.event.WebApp.WARNING.MODAL, z.ViewModel.ModalType.DELETE_EVERYONE_MESSAGE,
       action: =>
         @conversation_repository.delete_message_everyone @conversation_et(), @message_et()
-        @image_modal.hide()
+        @visible false

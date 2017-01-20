@@ -17,28 +17,13 @@
  *
  */
 
-// modal
 .detail-view {
-
-  &.modal:before {
-    background-color: #fff;
-  }
-
-  &.modal-show {
-    .flex-center
-  }
-}
-
-// wrapper
-.detail-view-content {
+  .full-screen;
+  background-color: #fff;
   display: flex;
   flex-direction: column;
-  height: 100%;
-  position: relative;
-  width: 100%;
 }
 
-// layout
 .detail-view-header {
   .flex-center;
   flex: 0 0 auto;
@@ -66,6 +51,24 @@
   }
 }
 
+.detail-view-image {
+  max-width: 84%;
+  max-height: 84%;
+  width: auto;
+  height: auto;
+  opacity: 0;
+  transform: scale(0.88);
+}
+
+.detail-view-image-animation {
+  transition-property: transform, opacity;
+  transition-duration: @animation-timing-slow;
+  transition-delay: @animation-timing-faster;
+  transition-timing-function: @ease-out-expo;
+  transform: scale(1);
+  opacity: 1;
+}
+
 .detail-view-footer {
   .flex-center;
   flex: 0 0 auto;
@@ -76,7 +79,7 @@
   }
 }
 
-// TODO generic butotn
+// TODO generic button
 .detail-view-action-button {
   .label-bold-xs;
   align-items: center;
@@ -86,11 +89,4 @@
   & > span:first-child {
     margin-right: 12px;
   }
-}
-
-.detail-view-image {
-  max-width: 84%;
-  max-height: 84%;
-  width: auto;
-  height: auto;
 }

@@ -36,20 +36,21 @@ z.util.ArrayUtil =
     return closest
 
   get_next_item: (array, item, filter) ->
-    index = array.indexOf item
-    next_index = index + 1
-
+    current_index = array.indexOf item
     # couldn't find the item
-    return null if index is -1
+    return null if current_index is -1
+
+    next_index = current_index + 1
 
     # item is last item in the array
-    return array[index - 1] if next_index is array.length and index > 0
+    if next_index is array.length and current_index > 0
+      return array[current_index - 1]
 
     return if next_index >= array.length
 
-    for i in [next_index..array.length]
-      current_item = array[i]
-      return current_item unless filter? and not filter current_item
+    for index in [next_index..array.length]
+      next_item = array[index]
+      return next_item unless filter? and not filter next_item
 
   ###
   Interpolates an array of numbers using linear interpolation
@@ -77,9 +78,12 @@ z.util.ArrayUtil =
   is_last_item: (array, item) ->
     return array.indexOf(item) is array.length - 1
 
-  iterate_index: (array, current_index) ->
+  iterate_index: (array, current_index, reverse = false) ->
     return undefined if not _.isArray(array) or not _.isNumber current_index
     return undefined if not array.length
+    if reverse
+      return array.length - 1 if current_index is 0
+      return (current_index - 1) % array.length
     return (current_index + 1) % array.length
 
   ###

@@ -21,7 +21,6 @@ z.ViewModel ?= {}
 
 class z.ViewModel.ImageDetailViewViewModel
   constructor: (@element_id, @conversation_repository) ->
-
     @source = undefined
 
     @image_modal = undefined
@@ -29,43 +28,68 @@ class z.ViewModel.ImageDetailViewViewModel
     @image_visible = ko.observable false
 
     @conversation_et = ko.observable()
+    @items = ko.observableArray()
     @message_et = ko.observable()
     @message_et.subscribe (message_et) =>
-      @conversation_et @conversation_repository.find_conversation_by_id message_et.conversation_id
+      if message_et
+        @conversation_et @conversation_repository.find_conversation_by_id message_et.conversation_id
+
+    @show_carousel_controls = ko.pureComputed => return @items().length > 1
 
     amplify.subscribe z.event.WebApp.CONVERSATION.DETAIL_VIEW.SHOW, @show
 
     ko.applyBindings @, document.getElementById @element_id
 
-  show: (message_et, source) =>
+  show: (message_ets, message_et, source) =>
+    @items message_ets
     @source = source
     @message_et message_et
 
+    amplify.subscribe z.event.WebApp.CONVERSATION.MESSAGE.ADDED, @message_added
     amplify.subscribe z.event.WebApp.CONVERSATION.MESSAGE.REMOVED, @message_removed
     @image_modal.destroy() if @image_modal?
     @image_modal = new zeta.webapp.module.Modal '#detail-view', @_hide_callback, @_before_hide_callback
     @image_modal.show()
 
-    message_et.get_first_asset().resource().load().then (blob) =>
-      @image_src window.URL.createObjectURL blob
-      @image_visible true
-
+    @_load_image()
     amplify.publish z.event.WebApp.ANALYTICS.EVENT, z.tracking.SessionEventName.INTEGER.IMAGE_DETAIL_VIEW_OPENED
 
-  message_removed: (message_id) =>
-    @image_modal.hide() if @message_et()?.id is message_id
+  message_added: (message_et) =>
+    return unless message_et.conversation is @conversation_et().id
+    @items.push message_et
+
+  message_removed: (removed_message_id) =>
+    @items.remove (message_et) ->  message_et.id is removed_message_id
+    @image_modal.hide() if @message_et().id is removed_message_id
 
   _hide_callback: =>
     window.URL.revokeObjectURL @image_src()
     @image_src undefined
     @source = undefined
+    amplify.unsubscribe z.event.WebApp.CONVERSATION.MESSAGE.ADDED, @message_added
     amplify.unsubscribe z.event.WebApp.CONVERSATION.MESSAGE.REMOVED, @message_removed
 
   _before_hide_callback: =>
     @image_visible false
 
+  _load_image: ->
+    @image_visible false
+    @message_et().get_first_asset().resource().load().then (blob) =>
+      @image_src window.URL.createObjectURL blob
+      @image_visible true
+
   click_on_close: =>
     @image_modal.hide()
+
+  click_on_show_next: (view_model, event) =>
+    event.stopPropagation()
+    @message_et @items()[z.util.ArrayUtil.iterate_index @items(), @items().indexOf @message_et()]
+    @_load_image()
+
+  click_on_show_previous: (view_model, event) =>
+    event.stopPropagation()
+    @message_et @items()[z.util.ArrayUtil.iterate_index @items(), @items().indexOf(@message_et()), true]
+    @_load_image()
 
   click_on_download: ->
     @_track_item_action @conversation_et(), 'download', 'image' if @source is 'collection'

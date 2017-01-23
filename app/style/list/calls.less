@@ -19,9 +19,9 @@
 
 .calls {
   display: flex;
-  padding-bottom: 16px;
-  padding-top: 8px;
+  padding: 8px 0px;
   position: relative;
+  background: fade(@graphite, 16%);
 }
 
 .calls-avatar {
@@ -40,7 +40,7 @@
 }
 
 .calls-controls-row {
-  min-height: 48px;
+  height: 48px;
   width: 100%;
   display: flex;
   align-items: center;
@@ -69,15 +69,13 @@
   .calls-controls-action {
     display: inline-block;
     text-align: center;
-    .down {
+    .beta-label {
+      .text-uppercase;
+      font-family: @font-family-base;
+      font-size: 10px;
+      font-weight: @font-weight-bold;
+      line-height: 16px;
       margin-top: 2px;
-      .beta-label {
-        .text-uppercase;
-        font-family: @font-family-base;
-        font-size: 10px;
-        font-weight: @font-weight-bold;
-        line-height: 16px;
-      }
     }
   }
 }

@@ -53,6 +53,14 @@ class z.ViewModel.ImageDetailViewViewModel
 
     @_load_image()
     amplify.publish z.event.WebApp.ANALYTICS.EVENT, z.tracking.SessionEventName.INTEGER.IMAGE_DETAIL_VIEW_OPENED
+    $(document).on 'keydown.lightbox', (event) =>
+      switch event.keyCode
+        when z.util.KEYCODE.ESC
+          @click_on_close()
+        when z.util.KEYCODE.ARROW_DOWN, z.util.KEYCODE.ARROW_RIGHT
+          @click_on_show_next()
+        when z.util.KEYCODE.ARROW_LEFT, z.util.KEYCODE.ARROW_UP
+          @click_on_show_previous()
 
   message_added: (message_et) =>
     return unless message_et.conversation is @conversation_et().id
@@ -63,6 +71,7 @@ class z.ViewModel.ImageDetailViewViewModel
     @image_modal.hide() if @message_et().id is removed_message_id
 
   _hide_callback: =>
+    $(document).off 'keydown.lightbox'
     window.URL.revokeObjectURL @image_src()
     @image_src undefined
     @source = undefined

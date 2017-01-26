@@ -92,12 +92,12 @@ class z.ViewModel.ImageDetailViewViewModel
 
   click_on_show_next: (view_model, event) =>
     event.stopPropagation()
-    @message_et @items()[z.util.ArrayUtil.iterate_index @items(), @items().indexOf @message_et()]
+    @message_et z.util.ArrayUtil.iterate_item @items(), @message_et()
     @_load_image()
 
   click_on_show_previous: (view_model, event) =>
     event.stopPropagation()
-    @message_et @items()[z.util.ArrayUtil.iterate_index @items(), @items().indexOf(@message_et()), true]
+    @message_et z.util.ArrayUtil.iterate_item @items(), @message_et(), true
     @_load_image()
 
   click_on_download: ->

@@ -86,6 +86,14 @@ z.util.ArrayUtil =
       return (current_index - 1) % array.length
     return (current_index + 1) % array.length
 
+  iterate_item: (array, current_item, reverse = false) ->
+    return undefined if not _.isArray(array)
+    return undefined if not array.length
+
+    current_index = array.indexOf current_item
+    return undefined if current_index is -1
+    return array[z.util.ArrayUtil.iterate_index array, current_index, reverse]
+
   ###
   Returns random element
   @param array [Array] source

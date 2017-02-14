@@ -9,8 +9,8 @@
 
 ##### Act 1: Alice
 
-1. Start call from UI
-1. Check for existing call
+1. Start call from UI (`click_on_call_button`)
+1. Check for existing call (`CallingRepository.toggle_state`)
 1. Create an `ECall` entity with "state" `outgoing`
 1. Get user media stream
 1. Create local peer connection

@@ -41,7 +41,16 @@ z.links.LinkPreviewProtoBuilder = do ->
 
     if has_valid_attributes data
       preview = new z.proto.Article data.url or url, data.title, data.description
-      return new z.proto.LinkPreview url, offset, preview
+      link_preview = new z.proto.LinkPreview url, offset, preview, null, data.title, data.description
+      
+      if data.site_name is "Twitter"
+        author = data.title.replace("on Twitter", "").trim()
+        username = data.url.match(/com\/([^/]*)\//)[1]
+        tweet = new z.proto.Tweet author, username
+        link_preview.set 'tweet', tweet
+        link_preview.set 'title', data.description
+      
+      return link_preview
 
     return undefined
 

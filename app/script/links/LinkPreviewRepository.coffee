@@ -73,10 +73,10 @@ class z.links.LinkPreviewRepository
 
   ###
   _fetch_preview_image: (link_preview, open_graph_image) ->
-    if link_preview.preview is 'article' and open_graph_image?.data
+    if open_graph_image?.data
       return @_upload_preview_image open_graph_image.data
       .then (asset) ->
-        link_preview.article.set 'image', asset
+        link_preview.set 'image', asset
         return link_preview
       .catch ->
         return link_preview
